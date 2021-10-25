@@ -13,12 +13,14 @@ DEBUG = False
 
 
 class CardScanner:
-    def __init__(self, file_path='./test2.jpg', src=None):
-        self.CARD_WIDTH = 200
-        self.CARD_HEIGHT = int(self.CARD_WIDTH * 1.52777778)
+    def __init__(self, file_path='./test2.jpg', src=None, DEBUG=False):
+        self.DEBUG = DEBUG
 
-        self.INFO_WIDTH = int((7/30) * self.CARD_WIDTH)
-        self.INFO_HEIGHT = int((7/18) * self.CARD_HEIGHT)
+        self.CARD_WIDTH = 200
+        self.CARD_HEIGHT = 304  # int(self.CARD_WIDTH * 1.52777778)
+
+        self.INFO_WIDTH = 47  # int((7/30) * self.CARD_WIDTH)
+        self.INFO_HEIGHT = 121  # int((7/18) * self.CARD_HEIGHT)
 
         self.card_container = np.array(
             [[0, 0], [self.CARD_WIDTH, 0], [self.CARD_WIDTH, self.CARD_HEIGHT], [0, self.CARD_HEIGHT]], np.float32)
@@ -46,7 +48,6 @@ class CardScanner:
         else:
             return False
 
-
     def angleBetween2Lines(self, line1, line2):
         dx1 = line1[1][0] - line1[0][0]
         dy1 = line1[1][1] - line1[0][1]
@@ -62,56 +63,65 @@ class CardScanner:
 
         return dot_product
 
-
     def is_point_close(self, pt, arr):
         x1, y1 = pt
         for pt1 in arr:
             x2, y2 = pt1
             dist = math.sqrt((x1-x2)**2 + (y1-y2)**2)
-            if dist < 20:
+            if dist < 40:
                 return True
 
         return False
-
 
     def filter_boundingRect(self, c):
         x, y, w, h = cv2.boundingRect(c)
         return (w*h) > (0.1*self.INFO_WIDTH * self.INFO_HEIGHT)
 
-
     def preprocess_image(self):
-        self.image = cv2.fastNlMeansDenoisingColored(self.image, None, 10, 10, 7, 21)
-        self.original_image = self.image.copy()
-
-        gray_img = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        gray_img[gray_img > 150] = 255
-        gray_img[gray_img <= 150] = 0
-        self.gray_img = gray_img.copy()
+        self.gray_img = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        _, self.gray_img = cv2.threshold(
+            self.gray_img, 150, 255, cv2.THRESH_BINARY)
 
         kernel = np.ones((30, 30), np.uint8)
-        closing = cv2.morphologyEx(gray_img, cv2.MORPH_CLOSE, kernel)
+        closing = cv2.morphologyEx(self.gray_img, cv2.MORPH_CLOSE, kernel)
+
         edges = cv2.Canny(closing, 100, 200)
 
         kernel = np.ones((3, 3), np.uint8)
         self.edges = cv2.dilate(edges, kernel, iterations=1)
 
+        cnts, hier = cv2.findContours(
+            edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+        card = cnts[0]
+
+        # Approximate the corner points of the card
+        peri = cv2.arcLength(card, True)
+        print(peri)
+        approx = cv2.approxPolyDP(card, 0.01*peri, True)
+        x, y, w, h = cv2.boundingRect(card)
+        pts = np.float32(approx)
+        cv2.drawContours(self.image, approx, -1, (0, 255, 0), 5)
+
+        if w >= 1.2*h:  # If card is horizontally oriented
+            print("horizontal!!!")
+            self.image = cv2.rotate(self.image, cv2.ROTATE_90_CLOCKWISE)
+            self.preprocess_image()
+            cv2.imshow("Image Rotated", self.edges)
+            cv2.waitKey(0)
+
     def get_lines(self):
         rho = 2  # distance resolution in pixels of the Hough grid
         theta = np.pi / 720  # angular resolution in radians of the Hough grid
-        threshold = 100  # minimum number of votes (intersections in Hough grid cell)
+        # minimum number of votes (intersections in Hough grid cell)
+        threshold = 100
         min_line_length = 100  # minimum number of pixels making up a line
         max_line_gap = 5  # maximum gap in pixels between connectable line segments
 
         # Run Hough on edge detected image
         # Output "lines" is an array containing endpoints of detected line segments
         self.lines = cv2.HoughLinesP(self.edges, rho, theta, threshold, np.array([]),
-                                min_line_length, max_line_gap)
-
-        for line in self.lines:
-            for x1, y1, x2, y2 in line:
-                cv2.line(self.image, (x1, y1), (x2, y2), (random.randint(50, 240),
-                                                    random.randint(50, 240), random.randint(50, 240)), 5)
-        
+                                     min_line_length, max_line_gap)
 
     def get_corners(self):
         poi = set()
@@ -140,39 +150,38 @@ class CardScanner:
                     if (x < 0) or x > self.IMAGE_WIDTH or y < 0 or y > self.IMAGE_HEIGHT or self.is_point_close(intersect, list(poi)):
                         continue
                     poi.add((int(x), int(y)))
-        
+
         if len(poi) < 4:
             raise Exception("Not enough corners found")
-            
+
         self.poi = np.asarray(list(poi), np.float32)
-        self.poi = np.asarray(sorted(np.concatenate([self.poi]).tolist()), np.float32)        
-                      
+        self.poi = np.asarray(
+            sorted(np.concatenate([self.poi]).tolist()), np.float32)
+
         print("pois: ", poi)
 # dilate edges
 
     def final_process(self):
         H, _ = cv2.findHomography(self.poi[[0, 2, 3, 1]], self.card_container, method=cv2.RANSAC,
-                                ransacReprojThreshold=3.0)
+                                  ransacReprojThreshold=3.0)
 
         # Sharpen Original Image And Crop
         original_image = cv2.warpPerspective(
-            self.original_image, H, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT), flags=cv2.INTER_LINEAR)[0:self.CARD_HEIGHT, 0:self.CARD_WIDTH]
+            self.image, H, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT), flags=cv2.INTER_LINEAR)[0:self.CARD_HEIGHT, 0:self.CARD_WIDTH]
 
         gray_img = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
-        gray_img[gray_img > 170] = 255
-        gray_img[gray_img <= 170] = 0
-
+        _, gray_img = cv2.threshold(gray_img, 170, 255, cv2.THRESH_BINARY)
 
         possible_corners = [gray_img[0:self.INFO_HEIGHT, 0:self.INFO_WIDTH],
                             cv2.flip(gray_img[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
         original_images = [original_image[0:self.INFO_HEIGHT, 0:self.INFO_WIDTH],
-                            cv2.flip(original_image[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
+                           cv2.flip(original_image[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
 
         self.final_cnts = None
         for i, possible_corner in enumerate(possible_corners):
-            info_gray = 255 - possible_corner
+            self.info_gray = 255 - possible_corner
             self.info_colored = original_images[i]
-            cnts = cv2.findContours(info_gray, cv2.RETR_EXTERNAL,
+            cnts = cv2.findContours(self.info_gray, cv2.RETR_EXTERNAL,
                                     cv2.CHAIN_APPROX_SIMPLE)
             cnts = cnts[0] if len(cnts) == 2 else cnts[1]
             cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:2]
@@ -182,14 +191,18 @@ class CardScanner:
             if len(cnts) == 2:
                 self.final_cnts = cnts
                 break
-        
+
         if self.final_cnts is None:
             raise Exception("Can't find any rank and suit")
 
         for c in self.final_cnts:
             x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(self.info_colored, (x, y), (x+w, y+h), (36, 255, 12), 2)
+            cv2.rectangle(self.info_colored, (x, y),
+                          (x+w, y+h), (36, 255, 12), 2)
 
+    def save_bounding_box(self, box_index, filename):
+        cv2.imwrite(filename, self.info_colored[box_index[1]:box_index[1] +
+                    box_index[3], box_index[0]:box_index[0]+box_index[2]])
 
     def run(self):
         try:
@@ -201,14 +214,39 @@ class CardScanner:
             print(e)
             return False
 
+        if self.DEBUG:
+            self.show_debug()
+
         cv2.imwrite("output2.jpg", self.info_colored)
         return True
-        
+
+    def show_debug(self):
+        # draw everything
+        # for index, pt in enumerate(self.poi):
+        #     x, y = pt
+        #     cv2.circle(self.image, (int(x), int(y)), radius=10,
+        #                color=(0, 0, 255), thickness=2)
+
+        #     character = chr(65 + index)
+        #     cv2.putText(self.image, character, (int(x), int(y)),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
+
+        for line in self.lines:
+            for x1, y1, x2, y2 in line:
+                cv2.line(self.image, (x1, y1), (x2, y2), (random.randint(50, 240),
+                                                          random.randint(50, 240), random.randint(50, 240)), 2)
+
+        cv2.imshow("Image - Original", self.image)
+        cv2.imshow("Image - Edges", self.edges)
+        cv2.imshow("Image - Info Gray", self.info_gray)
+        cv2.imshow("Image - Info", self.info_colored)
+
+        key = cv2.waitKey(0) & 0xFF
+        if key == ord('q'):
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    trainer = CardScanner("./test.jpg")
-    start = time.time()
+    trainer = CardScanner("./test4.jpg", DEBUG=True)
+
     trainer.run()
-    end = time.time()
-    print(end - start)

@@ -10,7 +10,6 @@ prev_frame_time = 0
  
 # used to record the time at which we processed current frame
 new_frame_time = 0
-
 font = cv2.FONT_HERSHEY_SIMPLEX
 
 ret, frame = vid.read()

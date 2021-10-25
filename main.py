@@ -3,7 +3,10 @@ import numpy as np
 import time
 import os
 
-from train import CardScanner
+from train import DEBUG, CardScanner
+
+
+cv2.setUseOptimized(True)
 
 # define a video capture object
 vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -15,13 +18,16 @@ new_frame_time = 0
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
+
+
+
 while(True):
 
     # Capture the video frame
     # by frame
     ret, frame = vid.read()
     
-    scanner = CardScanner(src=frame)
+    scanner = CardScanner(src=frame, DEBUG=True)
     
     start = time.time()
     res = scanner.run()
