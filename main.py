@@ -3,6 +3,8 @@ import numpy as np
 import time
 import os
 
+from train import CardScanner
+
 # define a video capture object
 vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
@@ -13,13 +15,20 @@ new_frame_time = 0
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
-ret, frame = vid.read()
-print('Resolution: ' + str(frame.shape[0]) + ' x ' + str(frame.shape[1]))
 while(True):
 
     # Capture the video frame
     # by frame
     ret, frame = vid.read()
+    
+    scanner = CardScanner(src=frame)
+    
+    start = time.time()
+    res = scanner.run()
+    end = time.time()
+    print((end - start) * 1000)
+    if res:
+        break
 
     new_frame_time = time.time()
  
