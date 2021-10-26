@@ -19,12 +19,13 @@ class CardScanner:
         self.CARD_WIDTH = 200
         self.CARD_HEIGHT = 304  # int(self.CARD_WIDTH * 1.52777778)
 
-        self.INFO_WIDTH = 47  # int((7/30) * self.CARD_WIDTH)
-        self.INFO_HEIGHT = 121  # int((7/18) * self.CARD_HEIGHT)
+        self.INFO_WIDTH = int((7/30) * self.CARD_WIDTH)
+        self.INFO_HEIGHT = int((7/18) * self.CARD_HEIGHT)
 
         self.card_container = np.array(
             [[0, 0], [self.CARD_WIDTH, 0], [self.CARD_WIDTH, self.CARD_HEIGHT], [0, self.CARD_HEIGHT]], np.float32)
 
+        self.approx = None
         if src is not None:
             self.image = src
         else:
@@ -33,10 +34,13 @@ class CardScanner:
 
     def filter_boundingRect(self, c):
         x, y, w, h = cv2.boundingRect(c)
-        return (w*h) > (0.1*self.INFO_WIDTH * self.INFO_HEIGHT)
+        is_big_enough = (w*h) > (0.1*self.INFO_WIDTH * self.INFO_HEIGHT)
+        not_too_big = (w*h) < (0.5*self.INFO_WIDTH * self.INFO_HEIGHT)
+        rectangular_like = (w/h) < 1.5 and (w/h) > 0.5
+        return is_big_enough and not_too_big and rectangular_like
 
     def image_is_blurry(self, image):
-        return cv2.Laplacian(image, cv2.CV_64F).var() < 200
+        return cv2.Laplacian(image, cv2.CV_64F).var() < 100
 
     def debug_print(self, *text):
         if self.DEBUG:
@@ -52,7 +56,7 @@ class CardScanner:
             raise Exception("Image is blurry")
 
         _, self.gray_img = cv2.threshold(
-            self.gray_img, 150, 255, cv2.THRESH_BINARY)
+            self.gray_img, 100, 255, cv2.THRESH_BINARY)
 
         kernel = np.ones((30, 30), np.uint8)
         closing = cv2.morphologyEx(self.gray_img, cv2.MORPH_CLOSE, kernel)
@@ -70,10 +74,9 @@ class CardScanner:
 
         # Approximate the corner points of the card
         peri = cv2.arcLength(card, True)
-        approx = cv2.approxPolyDP(card, 0.01*peri, True)
+        self.approx = cv2.approxPolyDP(card, 0.01*peri, True)
         x, y, w, h = cv2.boundingRect(card)
-        self.poi = np.float32(approx.reshape(4, 2))
-        cv2.drawContours(self.og_image, approx, -1, (0, 255, 0), 5)
+        self.poi = np.float32(self.approx.reshape(4, 2))
 
         self.poi = np.asarray(list(self.poi), np.float32)
         self.poi = np.asarray(
@@ -84,7 +87,6 @@ class CardScanner:
         self.is_horizontal(x, y, w, h)
 
     def is_horizontal(self, x, y, w, h):
-        # Flatten the card and convert it to 200x300
         if w >= 1.3*h:  # If card is horizontally oriented
             self.debug_print("horizontal!!!")
             self.image = cv2.rotate(self.image, cv2.ROTATE_90_CLOCKWISE)
@@ -99,22 +101,19 @@ class CardScanner:
                 self.poi[3] = temp
                 self.debug_print("swapping POI: ", self.poi)
 
-
-# dilate edges
-
     def final_process(self):
-        # H, _ = cv2.findHomography(self.poi[[0, 2, 3, 1]], self.card_container, method=cv2.RANSAC,
-        #                           ransacReprojThreshold=3.0)
+        H, _ = cv2.findHomography(self.poi[[0, 2, 3, 1]], self.card_container, method=cv2.RANSAC,
+                                  ransacReprojThreshold=3.0)
 
-        H = cv2.getPerspectiveTransform(
+        M = cv2.getPerspectiveTransform(
             self.poi[[0, 2, 3, 1]], self.card_container)
 
         # Sharpen Original Image And Crop
         original_image = cv2.warpPerspective(
-            self.image, H, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT), flags=cv2.INTER_LINEAR)  # [0:self.CARD_HEIGHT, 0:self.CARD_WIDTH]
+            self.image, H, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT), flags=cv2.INTER_LINEAR)[0:self.CARD_HEIGHT, 0:self.CARD_WIDTH]
 
         gray_img = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
-        _, gray_img = cv2.threshold(gray_img, 150, 255, cv2.THRESH_BINARY)
+        _, gray_img = cv2.threshold(gray_img, 170, 255, cv2.THRESH_BINARY)
 
         possible_corners = [gray_img[0:self.INFO_HEIGHT, 0:self.INFO_WIDTH],
                             cv2.flip(gray_img[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
@@ -130,7 +129,7 @@ class CardScanner:
             cnts = cnts[0] if len(cnts) == 2 else cnts[1]
             cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:2]
             cnts = list(filter(self.filter_boundingRect, cnts))
-            cnts = sorted(cnts, key=lambda c: cv2.boundingRect(c)[1])[:2]
+            cnts = sorted(cnts, key=lambda c: cv2.boundingRect(c)[1])
 
             if len(cnts) == 2:
                 self.final_cnts = cnts
@@ -144,8 +143,11 @@ class CardScanner:
             cv2.rectangle(self.info_colored, (x, y),
                           (x+w, y+h), (36, 255, 12), 2)
 
-    def save_bounding_box(self, box_index, filename):
+    def get_bounding_box_image(self, box_index):
+        x, y, w, h = cv2.boundingRect(self.final_cnts[box_index])
+        return self.info_gray[y:y+h, x:x+w]
 
+    def save_bounding_box(self, box_index, filename):
         x, y, w, h = cv2.boundingRect(self.final_cnts[box_index])
         cv2.imwrite(filename, self.info_gray[y:y+h, x:x+w])
 
@@ -187,6 +189,8 @@ class CardScanner:
 
 
 if __name__ == "__main__":
-    trainer = CardScanner("./test3.jpg", DEBUG=True)
+    trainer = CardScanner("./test.jpg", DEBUG=True)
 
     trainer.run()
+    trainer.save_bounding_box(0, "./test4_rank.jpg")
+    trainer.save_bounding_box(1, "./test4_suit.jpg")
