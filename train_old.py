@@ -174,6 +174,9 @@ for index, pt in enumerate(poi):
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
 
 
+cnts, hier = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+
 H, _ = cv2.findHomography(poi[[0, 2, 3, 1]], card_container, method=cv2.RANSAC,
                           ransacReprojThreshold=3.0)
 
