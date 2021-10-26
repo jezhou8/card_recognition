@@ -163,7 +163,6 @@ class CardScanner:
         if self.DEBUG:
             self.show_debug()
 
-        cv2.imwrite("output2.jpg", self.info_colored)
         return True
 
     def show_debug(self, wait=True):
