@@ -7,7 +7,7 @@ import math
 import heapq
 
 from numpy.lib.function_base import diff
-from train import DEBUG, CardScanner
+from CardScanner import DEBUG, CardScanner
 
 
 cv2.setUseOptimized(True)

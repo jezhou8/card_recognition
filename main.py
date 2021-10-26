@@ -3,7 +3,7 @@ import time
 import os
 import sys
 
-from train import DEBUG, CardScanner
+from CardScanner import DEBUG, CardScanner
 
 
 cv2.setUseOptimized(True)
