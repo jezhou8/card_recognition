@@ -5,9 +5,16 @@ import sys
 import numpy as np
 import math
 import heapq
+import platform
 
 from numpy.lib.function_base import diff
 from CardScanner import DEBUG, CardScanner
+
+
+if platform.system() == 'Windows':
+    vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+else:
+    vid = cv2.VideoCapture(0)
 
 
 cv2.setUseOptimized(True)

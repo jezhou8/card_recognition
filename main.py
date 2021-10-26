@@ -2,6 +2,7 @@ import cv2
 import time
 import os
 import sys
+import platform
 
 from CardScanner import DEBUG, CardScanner
 
@@ -9,7 +10,11 @@ from CardScanner import DEBUG, CardScanner
 cv2.setUseOptimized(True)
 
 # define a video capture object
-vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if platform.system() == 'Windows':
+    vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+else:
+    vid = cv2.VideoCapture(0)
+
 font = cv2.FONT_HERSHEY_SIMPLEX
 
 file_names = ['Ace', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
