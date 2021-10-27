@@ -55,18 +55,11 @@ class CardScanner:
         if self.image_is_blurry(self.gray_img):
             raise Exception("Image is blurry")
 
-        orig = self.gray_img.copy()
-        blurred = cv2.GaussianBlur(orig, (11, 11), 0)
+        # orig = self.gray_img.copy()
+        # blurred = cv2.GaussianBlur(orig, (11, 11), 0)
 
         _, self.gray_img = cv2.threshold(
             self.gray_img, 100, 255, cv2.THRESH_BINARY)
-
-        self.gray_img2 = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 51, 30)
-
-        cv2.imshow("gray", self.gray_img)
-        cv2.imshow("gray2", self.gray_img2)
-        cv2.waitKey(0)
 
         kernel = np.ones((30, 30), np.uint8)
         closing = cv2.morphologyEx(self.gray_img, cv2.MORPH_CLOSE, kernel)
