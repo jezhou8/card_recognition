@@ -86,9 +86,9 @@ class CardScanner:
 
         self.debug_print("pois: ", self.poi)
 
-        self.is_horizontal(x, y, w, h)
+        self.is_horizontal(w, h)
 
-    def is_horizontal(self, x, y, w, h):
+    def is_horizontal(self, w, h):
         if w >= 1.3*h:  # If card is horizontally oriented
             self.debug_print("horizontal!!!")
             self.image = cv2.rotate(self.image, cv2.ROTATE_90_CLOCKWISE)
