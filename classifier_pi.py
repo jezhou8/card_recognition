@@ -11,18 +11,32 @@ from numpy.lib.function_base import diff
 from CardScanner import DEBUG, CardScanner
 
 
-cv2.setUseOptimized(True)
-
-# define a video capture object
 PiOrUSB = 1
 
 IM_WIDTH = 640
 IM_HEIGHT = 480
 
-if platform.system() == 'Windows':
-    vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+if PiOrUSB == 1:
+    # Import packages from picamera library
+    from picamera.array import PiRGBArray
+    from picamera import PiCamera
+
+    # Initialize PiCamera and grab reference to the raw capture
+    camera = PiCamera()
+    camera.resolution = (IM_WIDTH, IM_HEIGHT)
+    camera.framerate = 10
+    rawCapture = PiRGBArray(camera, size=(IM_WIDTH, IM_HEIGHT))
 else:
-    vid = cv2.VideoCapture(0)
+    if platform.system() == 'Windows':
+        vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    else:
+        vid = cv2.VideoCapture(0)
+
+
+cv2.setUseOptimized(True)
+
+# define a video capture object
+vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 font = cv2.FONT_HERSHEY_SIMPLEX
 
 file_names = ['Ace', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
@@ -107,8 +121,8 @@ def classify(image, type='rank', preprocess=True):
 def main():
     saved_rank = None
     saved_suit = None
-    while True:
-        ret, frame = vid.read()
+    for image in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
+        frame = image.array
 
         scanner = CardScanner(src=frame, DEBUG=False)
         res = scanner.run()
@@ -144,11 +158,16 @@ def main():
         if key == ord('q'):
             break
 
+        rawCapture.truncate(0)
+
 
 if __name__ == '__main__':
     load_training_data()
     main()
-    vid.release()
     # Destroy all the windows
+    if PiOrUSB == 1:
+        camera.close()
+    else:
+        vid.release()
     cv2.destroyAllWindows()
     sys.exit(0)
