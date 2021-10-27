@@ -12,7 +12,7 @@ from numpy.lib.function_base import angle
 
 
 class CardScanner:
-    def __init__(self, file_path='./test2.jpg', src=None, DEBUG=False):
+    def __init__(self, file_path='./testing/test2.jpg', src=None, DEBUG=False):
         self.DEBUG = DEBUG
 
         self.CARD_WIDTH = 200

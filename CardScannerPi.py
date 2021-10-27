@@ -12,7 +12,7 @@ from picamera import PiCamera
 
 
 class CardScannerPi:
-    def __init__(self, file_path='./test2.jpg', config_path='./config.json', src=None, DEBUG=False):
+    def __init__(self, file_path='./testing/test2.jpg', config_path='./config.json', src=None, DEBUG=False):
         if not os.path.exists(config_path):
             print("Config File Not Found. Please run ./configurator.py")
             sys.exit(1)
