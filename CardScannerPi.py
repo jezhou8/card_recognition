@@ -74,10 +74,6 @@ class CardScannerPi:
         self.final_cnts = sorted(
             contours, key=lambda c: cv2.boundingRect(c)[1])  # sort by y
 
-        for c in self.final_cnts:
-            x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(self.image, (x, y), (x+w, y+h), (255, 0, 0), 2)
-
     def get_bounding_box_image(self, box_index):
         x, y, w, h = cv2.boundingRect(self.final_cnts[box_index])
         return self.gray_img[y:y+h, x:x+w]
@@ -99,8 +95,15 @@ class CardScannerPi:
         return True
 
     def show_debug(self, wait=True):
+        self.debug_gray = self.gray_img.copy()
+        self.debug_img = self.image.copy()
+        for c in self.final_cnts:
+            x, y, w, h = cv2.boundingRect(c)
+            cv2.rectangle(self.image, (x, y), (x+w, y+h), (255, 0, 0), 2)
+
+        cv2.drawContours(self.debug_img, self.final_cnts, -1, (0, 255, 0), 3)
         cv2.imshow("Image - Original", self.image)
-        cv2.imshow("Image - Gray", self.gray_img)
+        cv2.imshow("Image - Gray", self.debug_gray)
 
         if wait:
             key = cv2.waitKey(0) & 0xFF
@@ -144,8 +147,6 @@ if __name__ == "__main__":
                 saved_info_gray = scanner.gray_img
                 saved_final_cnts = scanner.final_cnts
 
-            if scanner.approx is not None:
-                cv2.drawContours(frame, scanner.approx, -1, (0, 255, 0), 5)
             cv2.imshow('frame', frame)
             rawCapture.truncate(0)
 
