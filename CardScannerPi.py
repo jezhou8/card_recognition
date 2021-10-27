@@ -21,8 +21,8 @@ class CardScannerPi:
 
         self.DEBUG = DEBUG
 
-        self.INFO_WIDTH = config.get('x_width')
-        self.INFO_HEIGHT = config.get('y_width')
+        self.INFO_WIDTH = config.get('img_width')
+        self.INFO_HEIGHT = config.get('img_height')
         self.INFO_XOFFSET = config.get('x_offset')
         self.INFO_YOFFSET = config.get('y_offset')
 
