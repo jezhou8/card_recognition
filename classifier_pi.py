@@ -134,9 +134,7 @@ def main():
             saved_suit = None
 
         if res:
-            cv2.imshow('res', scanner.info_gray)
-            cv2.imshow('edge', scanner.edges)
-            cv2.imshow('color', scanner.info_colored)
+            cv2.imshow('res', scanner.gray_img)
             test_rank = scanner.get_bounding_box_image(0)
             test_suit = scanner.get_bounding_box_image(1)
             try:

@@ -12,150 +12,187 @@ from numpy.lib.function_base import angle
 DEBUG = False
 
 
-IM_WIDTH = 640
-IM_HEIGHT = 480
+class CardScanner:
+    def __init__(self, file_path='./test2.jpg', src=None, DEBUG=False):
+        self.DEBUG = DEBUG
 
-RANK_WIDTH = 70
-RANK_HEIGHT = 125
+        self.CARD_WIDTH = 200
+        self.CARD_HEIGHT = 304  # int(self.CARD_WIDTH * 1.52777778)
 
-SUIT_WIDTH = 70
-SUIT_HEIGHT = 100
+        self.INFO_WIDTH = int((7/30) * self.CARD_WIDTH)
+        self.INFO_HEIGHT = int((7/18) * self.CARD_HEIGHT)
 
-CARD_WIDTH = 400
-CARD_HEIGHT = int(CARD_WIDTH * 1.52777778)
+        self.card_container = np.array(
+            [[0, 0], [self.CARD_WIDTH, 0], [self.CARD_WIDTH, self.CARD_HEIGHT], [0, self.CARD_HEIGHT]], np.float32)
 
-INFO_WIDTH = int((7/30) * CARD_WIDTH)
-INFO_HEIGHT = int((7/18) * CARD_HEIGHT)
-print(INFO_WIDTH, INFO_HEIGHT)
-card_container = np.array(
-    [[0, 0], [CARD_WIDTH-1, 0], [CARD_WIDTH-1, CARD_HEIGHT-1], [0, CARD_HEIGHT-1]], np.float32)
+        self.approx = None
+        if src is not None:
+            self.image = src
+        else:
+            self.image = cv2.imread(file_path)
+        self.og_image = self.image.copy()
 
-image = cv2.imread("./test5.jpg")
+    def filter_boundingRect(self, c):
+        x, y, w, h = cv2.boundingRect(c)
+        is_big_enough = (w*h) > (0.1*self.INFO_WIDTH * self.INFO_HEIGHT)
+        not_too_big = (w*h) < (0.5*self.INFO_WIDTH * self.INFO_HEIGHT)
+        rectangular_like = (w/h) < 1.5 and (w/h) > 0.5
+        return is_big_enough and not_too_big and rectangular_like
+
+    def image_is_blurry(self, image):
+        return cv2.Laplacian(image, cv2.CV_64F).var() < 1
+
+    def debug_print(self, *text):
+        if self.DEBUG:
+            print(text)
+
+    def preprocess_image(self):
+        self.IMAGE_HEIGHT, self.IMAGE_WIDTH = self.image.shape[:2]
+
+        self.gray_img = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+
+        # check if image is blurry
+        if self.image_is_blurry(self.gray_img):
+            raise Exception("Image is blurry")
+
+        # orig = self.gray_img.copy()
+        # blurred = cv2.GaussianBlur(orig, (11, 11), 0)
+
+        _, self.gray_img = cv2.threshold(
+            self.gray_img, 100, 255, cv2.THRESH_BINARY)
+
+        kernel = np.ones((30, 30), np.uint8)
+        closing = cv2.morphologyEx(self.gray_img, cv2.MORPH_CLOSE, kernel)
+
+        edges = cv2.Canny(closing, 100, 200)
+
+        kernel = np.ones((3, 3), np.uint8)
+        self.edges = cv2.dilate(edges, kernel, iterations=1)
+
+    def get_corners(self):
+        cnts, _ = cv2.findContours(
+            self.edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+        card = cnts[0]
+
+        # Approximate the corner points of the card
+        peri = cv2.arcLength(card, True)
+        self.approx = cv2.approxPolyDP(card, 0.01*peri, True)
+        x, y, w, h = cv2.boundingRect(card)
+        self.poi = np.float32(self.approx.reshape(4, 2))
+
+        self.poi = np.asarray(list(self.poi), np.float32)
+        self.poi = np.asarray(
+            sorted(np.concatenate([self.poi]).tolist()), np.float32)
+
+        self.debug_print("pois: ", self.poi)
+
+        self.is_horizontal(x, y, w, h)
+
+    def is_horizontal(self, x, y, w, h):
+        if w >= 1.3*h:  # If card is horizontally oriented
+            self.debug_print("horizontal!!!")
+            self.image = cv2.rotate(self.image, cv2.ROTATE_90_CLOCKWISE)
+            self.og_image = cv2.rotate(
+                self.og_image, cv2.ROTATE_90_CLOCKWISE)
+            self.preprocess_image()
+            self.get_corners()
+
+            temp = self.poi[0].copy()
+            if self.poi[0][1] < self.poi[3][1]:
+                self.poi[0] = self.poi[3]
+                self.poi[3] = temp
+                self.debug_print("swapping POI: ", self.poi)
+
+    def final_process(self):
+        H, _ = cv2.findHomography(self.poi[[0, 2, 3, 1]], self.card_container, method=cv2.RANSAC,
+                                  ransacReprojThreshold=3.0)
+
+        M = cv2.getPerspectiveTransform(
+            self.poi[[0, 2, 3, 1]], self.card_container)
+
+        # Sharpen Original Image And Crop
+        original_image = cv2.warpPerspective(
+            self.image, H, (self.IMAGE_WIDTH, self.IMAGE_HEIGHT), flags=cv2.INTER_LINEAR)[0:self.CARD_HEIGHT, 0:self.CARD_WIDTH]
+
+        gray_img = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+        _, gray_img = cv2.threshold(gray_img, 170, 255, cv2.THRESH_BINARY)
+
+        possible_corners = [gray_img[0:self.INFO_HEIGHT, 0:self.INFO_WIDTH],
+                            cv2.flip(gray_img[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
+        original_images = [original_image[0:self.INFO_HEIGHT, 0:self.INFO_WIDTH],
+                           cv2.flip(original_image[0:self.INFO_HEIGHT, self.CARD_WIDTH-self.INFO_WIDTH:self.CARD_WIDTH], 1)]
+
+        self.final_cnts = None
+        for i, possible_corner in enumerate(possible_corners):
+            self.info_gray = 255 - possible_corner
+            self.info_colored = original_images[i]
+            cnts = cv2.findContours(self.info_gray, cv2.RETR_EXTERNAL,
+                                    cv2.CHAIN_APPROX_SIMPLE)
+            cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+            cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:2]
+            cnts = list(filter(self.filter_boundingRect, cnts))
+            cnts = sorted(cnts, key=lambda c: cv2.boundingRect(c)[1])
+
+            if len(cnts) == 2:
+                self.final_cnts = cnts
+                break
+
+        if self.final_cnts is None:
+            raise Exception("Can't find any rank and suit")
+
+        for c in self.final_cnts:
+            x, y, w, h = cv2.boundingRect(c)
+            cv2.rectangle(self.info_colored, (x, y),
+                          (x+w, y+h), (36, 255, 12), 2)
+
+    def get_bounding_box_image(self, box_index):
+        x, y, w, h = cv2.boundingRect(self.final_cnts[box_index])
+        return self.info_gray[y:y+h, x:x+w]
+
+    def save_bounding_box(self, box_index, filename):
+        x, y, w, h = cv2.boundingRect(self.final_cnts[box_index])
+        cv2.imwrite(filename, self.info_gray[y:y+h, x:x+w])
+
+    def run(self):
+        try:
+            self.preprocess_image()
+            self.get_corners()
+            self.final_process()
+        except Exception as e:
+            self.debug_print("[!]", e)
+            return False
+
+        if self.DEBUG:
+            self.show_debug()
+
+        return True
+
+    def show_debug(self, wait=True):
+        # for index, pt in enumerate(self.poi):
+        #     x, y = pt
+        #     cv2.circle(original_image, (int(x), int(y)), radius=5,
+        #                color=(255, 0, 0), thickness=5)
+
+        #     character = chr(65 + index)
+        #     cv2.putText(original_image, character, (int(x), int(y)),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
+
+        # draw everything
+        cv2.imshow("Image - Original", self.image)
+        cv2.imshow("Image - Edges", self.edges)
+        cv2.imshow("Image - Info Gray", self.info_gray)
+        cv2.imshow("Image - Info", self.info_colored)
+
+        if wait:
+            key = cv2.waitKey(0) & 0xFF
+            if key == ord('q'):
+                cv2.destroyAllWindows()
 
 
-def flattener(image, pts, w, h):
-    """Flattens an image of a card into a top-down 200x300 perspective.
-    Returns the flattened, re-sized, grayed image.
-    See www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/"""
-    temp_rect = np.zeros((4, 2), dtype="float32")
+if __name__ == "__main__":
+    trainer = CardScanner("./test6.jpg", DEBUG=True)
 
-    print('pts', pts)
-    s = np.sum(pts, axis=2)
-    print('s', s)
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-
-    diff = np.diff(pts, axis=-1)
-    print('diff', diff)
-    tr = pts[np.argmin(diff)]
-    bl = pts[np.argmax(diff)]
-
-    print(tl, tr, br, bl)
-    # Need to create an array listing points in order of
-    # [top left, top right, bottom right, bottom left]
-    # before doing the perspective transform
-
-    if w <= 0.8*h:  # If card is vertically oriented
-        print("vert!!!!!!")
-        temp_rect[0] = tl
-        temp_rect[1] = tr
-        temp_rect[2] = br
-        temp_rect[3] = bl
-
-    if w >= 1.2*h:  # If card is horizontally oriented
-        print("horizontal!!!")
-        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-        cv2.imshow("Image Rotated", image)
-        temp_rect[0] = bl
-        temp_rect[1] = tl
-        temp_rect[2] = tr
-        temp_rect[3] = br
-
-    # If the card is 'diamond' oriented, a different algorithm
-    # has to be used to identify which point is top left, top right
-    # bottom left, and bottom right.
-
-    if w > 0.8*h and w < 1.2*h:  # If card is diamond oriented
-        # If furthest left point is higher than furthest right point,
-        # card is tilted to the left.
-        if pts[1][0][1] <= pts[3][0][1]:
-            # If card is titled to the left, approxPolyDP returns points
-            # in this order: top right, top left, bottom left, bottom right
-            temp_rect[0] = pts[1][0]  # Top left
-            temp_rect[1] = pts[0][0]  # Top right
-            temp_rect[2] = pts[3][0]  # Bottom right
-            temp_rect[3] = pts[2][0]  # Bottom left
-
-        # If furthest left point is lower than furthest right point,
-        # card is tilted to the right
-        elif pts[1][0][1] > pts[3][0][1]:
-            # If card is titled to the right, approxPolyDP returns points
-            # in this order: top left, bottom left, bottom right, top right
-            temp_rect[0] = pts[0][0]  # Top left
-            temp_rect[1] = pts[3][0]  # Top right
-            temp_rect[2] = pts[2][0]  # Bottom right
-            temp_rect[3] = pts[1][0]  # Bottom left
-
-    # Create destination array, calculate perspective transform matrix,
-    # and warp card image
-    maxWidth = 200
-    maxHeight = 300
-
-    print("temp_rect: ", temp_rect)
-    # Create destination array, calculate perspective transform matrix,
-    # and warp card image
-    dst = np.array([[0, 0], [maxWidth-1, 0], [maxWidth-1,
-                   maxHeight-1], [0, maxHeight-1]], np.float32)
-
-    H, _ = cv2.findHomography(temp_rect, dst, method=cv2.RANSAC,
-                              ransacReprojThreshold=3.0)
-    M = cv2.getPerspectiveTransform(temp_rect, dst)
-    warp = cv2.warpPerspective(image, H, (width, height))
-    warp = cv2.cvtColor(warp, cv2.COLOR_BGR2GRAY)
-
-    return warp
-
-
-# Pre-process image
-print(image.shape)
-height, width = image.shape[:2]
-image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
-original_image = image.copy()
-
-gray_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-gray_img[gray_img > 150] = 255
-gray_img[gray_img <= 150] = 0
-
-
-kernel = np.ones((30, 30), np.uint8)
-closing = cv2.morphologyEx(gray_img, cv2.MORPH_CLOSE, kernel)
-edges = cv2.Canny(closing, 100, 200)
-
-# dilate edges
-kernel = np.ones((2, 2), np.uint8)
-edges = cv2.dilate(edges, kernel, iterations=1)
-
-cnts, hier = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
-card = cnts[0]
-
-# Approximate the corner points of the card
-peri = cv2.arcLength(card, True)
-print(peri)
-approx = cv2.approxPolyDP(card, 0.01*peri, True)
-x, y, w, h = cv2.boundingRect(card)
-cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 0), 2)
-pts = np.float32(approx)
-cv2.drawContours(image, approx, -1, (0, 255, 0), 5)
-# Flatten the card and convert it to 200x300
-warp = flattener(image, pts, w, h)
-
-
-cv2.imshow("Image - Original", image)
-cv2.imshow("Image - Edges", edges)
-cv2.imshow("Image - Warped", warp)
-
-key = cv2.waitKey(0) & 0xFF
-if key == ord('q'):
-    cv2.destroyAllWindows()
+    trainer.run()
+    trainer.save_bounding_box(0, "./test4_rank.jpg")
+    trainer.save_bounding_box(1, "./test4_suit.jpg")

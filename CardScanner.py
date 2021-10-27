@@ -6,10 +6,9 @@ import random
 import sys
 import math
 from operator import itemgetter
+import platform
 
 from numpy.lib.function_base import angle
-
-DEBUG = False
 
 
 class CardScanner:
@@ -169,16 +168,6 @@ class CardScanner:
         return True
 
     def show_debug(self, wait=True):
-        # for index, pt in enumerate(self.poi):
-        #     x, y = pt
-        #     cv2.circle(original_image, (int(x), int(y)), radius=5,
-        #                color=(255, 0, 0), thickness=5)
-
-        #     character = chr(65 + index)
-        #     cv2.putText(original_image, character, (int(x), int(y)),
-        #                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2, cv2.LINE_AA)
-
-        # draw everything
         cv2.imshow("Image - Original", self.image)
         cv2.imshow("Image - Edges", self.edges)
         cv2.imshow("Image - Info Gray", self.info_gray)
@@ -191,8 +180,63 @@ class CardScanner:
 
 
 if __name__ == "__main__":
-    trainer = CardScanner("./test6.jpg", DEBUG=True)
+    cv2.setUseOptimized(True)
 
-    trainer.run()
-    trainer.save_bounding_box(0, "./test4_rank.jpg")
-    trainer.save_bounding_box(1, "./test4_suit.jpg")
+    # define a video capture object
+    if platform.system() == 'Windows':
+        vid = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    else:
+        vid = cv2.VideoCapture(0)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    file_names = ['Ace', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight',
+                  'Nine', 'Ten', 'Jack', 'Queen', 'King', 'Spades', 'Diamonds',
+                  'Clubs', 'Hearts']
+    file_index = 0
+    file_path = os.path.dirname(os.path.abspath(__file__)) + '/cards/'
+    print(file_path)
+    while file_index < len(file_names):
+        file_name = f'{file_names[file_index]}.jpg'
+
+        # Capture the video frame
+        # by frame
+        print(f"[{file_name}] Press 'p' to take picture', q to quit")
+        saved_info_gray = None
+        saved_final_cnts = None
+        while True:
+            ret, frame = vid.read()
+
+            scanner = CardScanner(src=frame, DEBUG=False)
+            res = scanner.run()
+
+            if res:
+                saved_info_gray = scanner.info_gray
+                saved_final_cnts = scanner.final_cnts
+                cv2.imshow('res', scanner.info_gray)
+                cv2.imshow('edge', scanner.edges)
+                cv2.imshow('color', scanner.info_colored)
+
+            if scanner.approx is not None:
+                cv2.drawContours(frame, scanner.approx, -1, (0, 255, 0), 5)
+            cv2.imshow('frame', frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                vid.release()
+                cv2.destroyAllWindows()
+                sys.exit(0)
+            if key == ord('p'):
+                bb = 0 if file_index < 13 else 1
+                fp = file_path + file_name
+                if (saved_info_gray is not None) and (saved_final_cnts is not None):
+                    x, y, w, h = cv2.boundingRect(saved_final_cnts[bb])
+                    cv2.imwrite(fp, saved_info_gray[y:y+h, x:x+w])
+                    break
+
+        file_index += 1
+
+    # After the loop release the cap object
+    vid.release()
+    # Destroy all the windows
+    cv2.destroyAllWindows()
