@@ -11,8 +11,8 @@ class Configurator:
         self.config = {
             'x_offset': 0,
             'y_offset': 0,
-            'x_width': 0,
-            'y_width': 0,
+            'img_width': 0,
+            'img_height': 0,
         }
         self.config_set = False
 
@@ -47,10 +47,10 @@ class Configurator:
 
         if event == cv2.EVENT_LBUTTONUP:
             print('goodbye!')
-            self.config['x_width'] = x - self.config['x_offset']
-            self.config['y_width'] = y - self.config['y_offset']
+            self.config['img_width'] = x - self.config['x_offset']
+            self.config['img_height'] = y - self.config['y_offset']
 
-            if self.config['x_width'] == 0 or self.config['y_width'] == 0:
+            if self.config['img_width'] == 0 or self.config['img_height'] == 0:
                 print("Invalid area")
                 self.config_set = False
                 return
@@ -61,7 +61,7 @@ class Configurator:
                 param, (self.config['x_offset'], self.config['y_offset']), (x, y), (0, 255, 0), 2)
             cv2.imshow(self.window_name, param)
             cv2.imshow(self.preview_name, param_clean[self.config['y_offset']:self.config['y_offset'] +
-                                                      self.config['y_width'], self.config['x_offset']:self.config['x_offset'] + self.config['x_width']])
+                                                      self.config['img_height'], self.config['x_offset']:self.config['x_offset'] + self.config['img_width']])
 
     def get_image(self):
         frame = None
